@@ -1,4 +1,7 @@
 import axios from 'axios';
+import { exec } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 const JUDGE0_API_URL = 'https://judge0-ce.p.rapidapi.com';
 const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY; // You'll need to add this to your .env file
@@ -227,90 +230,40 @@ export const compileAndRun = async (req, res) => {
             });
         }
 
-        // First, create a submission
-        const createSubmissionResponse = await axios({
-            method: 'POST',
-            url: `${JUDGE0_API_URL}/submissions`,
-            headers: {
-                'Content-Type': 'application/json',
-                'X-RapidAPI-Key': JUDGE0_API_KEY,
-                'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com'
-            },
-            data: {
-                language_id: 62, // Java 13
-                source_code: code,
-                stdin: '',
-                expected_output: null,
-                cpu_time_limit: 2,
-                memory_limit: 512000
+        // Save the code to a temporary file
+        const tempDir = path.join(__dirname, 'temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir);
+        }
+        const filePath = path.join(tempDir, 'Main.java');
+        fs.writeFileSync(filePath, code);
+
+        // Compile the Java code
+        exec(`javac ${filePath}`, (compileError, stdout, stderr) => {
+            if (compileError) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Compilation error',
+                    error: stderr
+                });
             }
-        });
 
-        const submissionData = createSubmissionResponse.data;
+            // Run the compiled Java program
+            exec(`java -cp ${tempDir} Main`, (runError, runStdout, runStderr) => {
+                if (runError) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Runtime error',
+                        error: runStderr
+                    });
+                }
 
-        if (submissionData.error) {
-            return res.status(400).json({
-                success: false,
-                message: 'Submission error',
-                error: submissionData.error
+                return res.json({
+                    success: true,
+                    output: runStdout
+                });
             });
-        }
-
-        // Wait for a moment to allow compilation
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // Get the submission result
-        const getResultResponse = await axios({
-            method: 'GET',
-            url: `${JUDGE0_API_URL}/submissions/${submissionData.token}`,
-            headers: {
-                'X-RapidAPI-Key': JUDGE0_API_KEY,
-                'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com'
-            }
         });
-
-        const resultData = getResultResponse.data;
-
-        // Map status codes to messages
-        const statusMessages = {
-            3: 'Accepted',
-            4: 'Wrong Answer',
-            5: 'Time Limit Exceeded',
-            6: 'Compilation Error',
-            7: 'Runtime Error',
-            8: 'System Error'
-        };
-
-        // Handle different status codes
-        if (resultData.status.id === 6) {
-            return res.json({
-                success: false,
-                output: '',
-                error: resultData.compile_output || 'Compilation error occurred',
-                time: resultData.time,
-                memory: resultData.memory
-            });
-        }
-
-        if (resultData.status.id === 7) {
-            return res.json({
-                success: false,
-                output: resultData.stdout || '',
-                error: resultData.stderr || 'Runtime error occurred',
-                time: resultData.time,
-                memory: resultData.memory
-            });
-        }
-
-        return res.json({
-            success: true,
-            output: resultData.stdout || '',
-            status: statusMessages[resultData.status.id] || 'Unknown Status',
-            error: resultData.stderr || null,
-            time: resultData.time,
-            memory: resultData.memory
-        });
-
     } catch (error) {
         console.error('Compiler error:', error);
         return res.status(500).json({
@@ -332,16 +285,6 @@ export const visualizeCode = async (req, res) => {
             });
         }
 
-        // Check if API key is available
-        if (!process.env.JUDGE0_API_KEY) {
-            console.error('Judge0 API Key is not configured');
-            return res.status(500).json({
-                success: false,
-                message: 'Judge0 API Key is not configured',
-                error: 'Missing API configuration'
-            });
-        }
-
         // Validate Java code structure
         const validation = validateJavaCode(code);
         if (!validation.isValid) {
@@ -353,111 +296,21 @@ export const visualizeCode = async (req, res) => {
 
         // Create visualization steps
         const steps = createVisualizationSteps(code);
-        console.log('Generated visualization steps:', steps.length);
 
-        // First, create a submission to get the output
-        const submissionData = {
-            language_id: 62,
-            source_code: code,
-            stdin: '',
-            expected_output: null,
-            cpu_time_limit: 2,
-            memory_limit: 512000
-        };
-
-        try {
-            console.log('Submitting to Judge0 API...');
-            const createSubmissionResponse = await axios({
-                method: 'POST',
-                url: `${JUDGE0_API_URL}/submissions`,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-RapidAPI-Key': process.env.JUDGE0_API_KEY,
-                    'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com'
-                },
-                data: submissionData
-            });
-
-            console.log('Submission created:', createSubmissionResponse.data);
-
-            if (createSubmissionResponse.data.error) {
-                console.error('Judge0 API submission error:', createSubmissionResponse.data.error);
-                return res.status(400).json({
-                    success: false,
-                    message: 'Submission error',
-                    error: createSubmissionResponse.data.error
-                });
+        return res.json({
+            success: true,
+            visualization: {
+                steps,
+                totalSteps: steps.length,
+                currentStep: 0
             }
-
-            // Wait for a moment to allow compilation
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Get the submission result
-            console.log('Fetching submission result...');
-            const getResultResponse = await axios({
-                method: 'GET',
-                url: `${JUDGE0_API_URL}/submissions/${createSubmissionResponse.data.token}`,
-                headers: {
-                    'X-RapidAPI-Key': process.env.JUDGE0_API_KEY,
-                    'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com'
-                }
-            });
-
-            console.log('Submission result received:', getResultResponse.data);
-
-            const resultData = getResultResponse.data;
-
-            if (resultData.status.id === 6) {
-                return res.json({
-                    success: false,
-                    message: 'Compilation error',
-                    error: resultData.compile_output || 'Compilation error occurred'
-                });
-            }
-
-            if (resultData.status.id === 7) {
-                return res.json({
-                    success: false,
-                    message: 'Runtime error',
-                    error: resultData.stderr || 'Runtime error occurred'
-                });
-            }
-
-            // Return successful response with visualization data
-            return res.json({
-                success: true,
-                output: resultData.stdout || '',
-                visualization: {
-                    steps,
-                    totalSteps: steps.length,
-                    currentStep: 0
-                },
-                time: resultData.time,
-                memory: resultData.memory
-            });
-
-        } catch (apiError) {
-            console.error('Judge0 API Error:', {
-                message: apiError.message,
-                response: apiError.response?.data,
-                status: apiError.response?.status
-            });
-            
-            return res.status(500).json({
-                success: false,
-                message: 'Judge0 API Error',
-                error: apiError.message,
-                details: apiError.response?.data || 'No additional details available'
-            });
-        }
-
+        });
     } catch (error) {
         console.error('Visualization error:', error);
         return res.status(500).json({
             success: false,
             message: 'Server error',
-            error: error.message,
-            details: error.stack
+            error: error.message
         });
     }
 };
@@ -499,4 +352,4 @@ export const getEdgeCases = async (req, res) => {
             error: error.message
         });
     }
-}; 
+};
