@@ -1,6 +1,7 @@
 // backend/routes/compilerRoutes.js
 import express from "express";
 import {Groq} from "groq-sdk";
+import axios from "axios"; 
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const router = express.Router();
@@ -86,30 +87,52 @@ router.post("/analyze-code", async (req, res) => {
 router.post("/spaceComplexity", async (req, res) => {
   try {
     const { code } = req.body;
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const result = await model.generateContent(
-      "Analyze this code and provide only the space complexity in Big O notation (just the notation, no explanation): " + code
-    );
-    res.send({ complexity: result.response.candidates[0].content.parts[0].text });
+
+    // Define the prompt string
+    const prompt = "Analyze this code and provide only the space complexity in Big O notation (just the notation, no explanation): " + code;
+
+    // Call Groq model
+    const response = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant", // Or gemma-7b-it
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+    });
+
+    // Extract text response
+    const complexity = response.choices[0]?.message?.content || "Not found";
+
+    res.send({ complexity });
   } catch (error) {
     console.error("Error in complexity route:", error.message);
     res.status(500).json({ success: false, message: "Error finding complexity", error: error.message });
   }
 });
 
+
 // Time Complexity
 router.post("/timeComplexity", async (req, res) => {
   try {
     const { code } = req.body;
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const result = await model.generateContent(
-      "Analyze this code and provide only the time complexity in Big O notation (just the notation, no explanation): " + code
-    );
-    res.send({ complexity: result.response.candidates[0].content.parts[0].text });
+
+    // Define the prompt string
+    const prompt = "Analyze this code and provide only the time complexity in Big O notation (just the notation, no explanation): " + code;
+
+    // Call Groq model
+    const response = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant", // Or gemma-7b-it
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+    });
+
+    // Extract text response
+    const complexity = response.choices[0]?.message?.content || "Not found";
+
+    res.send({ complexity });
   } catch (error) {
     console.error("Error in complexity route:", error.message);
     res.status(500).json({ success: false, message: "Error finding complexity", error: error.message });
   }
 });
+
 
 export default router;
