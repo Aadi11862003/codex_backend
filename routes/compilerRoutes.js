@@ -135,4 +135,32 @@ router.post("/timeComplexity", async (req, res) => {
 });
 
 
+// Route for querying anything (not just code)
+router.post("/query", async (req, res) => {
+  try {
+    const { question } = req.body;
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { role: "system", content: "You are a helpful assistant. Answer clearly and concisely." },
+        { role: "user", content: question },
+      ],
+      temperature: 0.5,
+    });
+
+    const responseText =
+      completion.choices?.[0]?.message?.content || "No response found";
+
+    // ⬇️ fix here
+    res.json({ success: true, answer: responseText });
+  } catch (error) {
+    console.error("Error in /query:", error.message);
+    res.status(500).json({ success: false, message: "Error answering query" });
+  }
+});
+
+
+
+
 export default router;
